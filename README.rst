@@ -24,6 +24,8 @@ but alternate approach would likely be better off.
 other historical code for other approach would be added retroactively for potential reconsideration.
 use git log to see them.
 
+the final working version is `taxorpt_df.py`, which uses data frame in spark.  code runs, but slow UDF.
+
 
 db
 --
