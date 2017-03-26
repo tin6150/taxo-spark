@@ -1,0 +1,84 @@
+#!/bin/sh
+
+
+## script to submit spark job to uge cluster
+## ref: http://web.global/apps/confluence/pages/viewpage.action?pageId=62031175
+##
+
+
+##   qsub ./uge_spark.qsub
+
+#$   -N df-tid-pe320
+#$   -pe spark-hadoop 320 
+###$   -N df-rpt-pe4
+###$   -l m_mem_free=10G                  # for 822 cores, can't get 32GB.  10 GB was fine, maybe can do 16
+###$   -l h_rt=2190                   #  7200 = 2 hours
+###$ -l h_rt=28100                  # 28100 = a tad less than 8 hr
+###$ -l h_rt=281001                  # 281001 = a tad less than 78 hr
+#$ -l h_rt=2810012                  # 281001 = a tad less than 780 hr
+###$ -wd /path/to/workdir
+###$ -o ./sprk-pe8.out              # don't use, cuz then combine .po and .o and breaks grep -v ^17
+#$   -j y
+#$   -cwd 
+#$   -S /bin/sh
+#$   -R y                               # use reservation, or large pe job may starve  
+
+
+# This is a default way to determine Spark master port and host. Port is stored in the $TMPDIR/spark_port file . Host is stored in the $TMPDIR/spark_host file. The MASTER environment variable must be set to spark://${SPARK_HOST}:${SPARK_PORT}. You may also use this Spark URL in your own scripts if needed.
+SPARK_PORT=`cat $TMPDIR/spark_port`;
+SPARK_HOST=`cat $TMPDIR/spark_host`;
+export MASTER=spark://${SPARK_HOST}:${SPARK_PORT}
+# This string is not needed if your environment is set up correctly. We just put this line here to make sure we have the proper path for the modules.
+export MODULEPATH=/prog/modules/all:$MODULEPATH
+# To make Spark binaries available - we should load the Spark module. After this $SPARK_HOME variable will be set.
+module load spark
+#cd ${SPARK_HOME} ## ie /usr/prog/spark/1.6.0-hadoop-2.6
+
+# Setting SPARK_LOCAL_DIRS to /scratch. It's important not to put all temporary SPARK data into the global /tmp on the node. The directory in /scratch will be created automatically, you should not care about it.
+export SPARK_LOCAL_DIRS="/scratch/$USER/spark/${JOB_ID}.${SGE_TASK_ID}/tmp_local"
+# run-example will submit the job to the Spark cluster using $MASTER variable. If $MASTER variable is not set - the job will be failed.
+#  ./bin/run-example SparkPi 1000 &> /home/${USER}/script.out.t${JOB_ID}
+
+##export PYTHONPATH=$PYTHONPATH:/prj/idinfo/prog/local_python_2.7.9/lib/python2.7/
+#export PYTHONPATH=$PYTHONPATH:/home/bofh1/code/hoti-bb/taxo-spark/pyphy:/home/bofh1/local_python_2.7.9/lib/python2.7/site-packages/:/prj/idinfo/prog/local_python_2.7.9/lib/python2.7/
+source /prj/idinfo/prog/local_python_2.7.9/bin/activate
+#export PYTHONPATH=$PYTHONPATH:/home/bofh1/code/hoti-bb/taxo-spark:/prj/idinfo/prog/local_python_2.7.9/lib/python2.7
+# pythonpath here don't seems to cut it for UDF, needed to use sparkConf setExecutorEnv() for that
+# and don't seems to need it outside spark env... just need to use import correctly?  (or cuz i had -cwd in qsub?)
+
+
+
+#spark-submit taxorpt_spark.py /home/bofh1/code/svn/taxo/db/protein_blast_hits.txt.head100 /home/bofh1/pub/taxorpt_uge_spark.htm  # tppl 20 min 
+#spark-submit  taxoTraceTblOop.py 
+#spark-submit taxorpt_df.py   ## /home/bofh1/code/svn/taxo/db/protein_blast_hits.txt.head100 /home/bofh1/pub/taxorpt_uge_spark.htm
+        # 37 min with 8 core, 35 min with 48 core.  no sqlQuery/collect.  just 6 col addition
+        # 96 min with 48 cores x 24 GB, with 3 sqlQuery/collect.  just 6 col addition
+        # ??      822 cores x 10 GB... contrast with load_trace.py which run the query on the parquet file
+
+#spark-submit taxoTraceTbl_df.py   ##   long process!
+spark-submit  taxoTraceTbl_df.py   ##  new join w/ acc2taxid list in dev
+#spark-submit  taxorpt_df.py   # in dev again...
+#spark-submit taxorpt_df.py  -dd -s'|' --text /home/bofh1/code/svn/taxo/db/protein_blast_hits.txt.head100 /home/bofh1/pub/taxorpt_dt.txt  # 
+# -d
+
+
+
+
+### long running jobs:
+### 2778206 0.59894 df-trc-pe3 bofh1        r     03/03/2017 10:43:18 default.q@skywalker-2-10.cm.cl                                   32
+###   creating parquet with UDF on taxo tree csv, 1.4M rows needing 4x2 level of UDF col addition, taking 2+ days now, h_rt ~80 hrs
+###   killed after 3 days 6 hours (h_rt ~ 80 hrs)
+
+### done 2791393 0.60500 df-trc-pe3 bofh1        r     03/05/2017 07:39:22 default.q@skywalker-3-1.cm.clu                                   34
+###   using acc2taxid to create a distinct list of taxid, then join with taxo tree.  this should be smaller than 1.4M rows.
+### 2791739 0.60333 df-trc-pe3 bofh1        r     03/05/2017 08:50:11 default.q@skywalker-3-1.cm.clu                                   34
+###   optimization 1 of taxoTraceTbl_df (job 2791393 ) just save to parquet _noUDF  ==> 1,222,746 uniq taxid$
+
+
+###2794262 0.60333 df-trc-pe3 bofh1        r     03/05/2017 17:14:47 default.q@skywalker-2-10.cm.cl                                   34
+###   tba, optimization 2 of taxoTraceTbl_df (job 2791393 ) in that UDF can use prev level TaxID istead of start from bottom level
+
+### some of the above died...
+### rerunning  taxoTraceTbl_df.py  with parquet output to ...309.   thing this seems to have finally worked, within the 78 hrs, maybe 32 cores...
+### 2826356 0.61000 df-tid-pe3 bofh1        r     03/09/2017 19:09:47 default.q@skywalker-4-5.cm.clu                                  320
+
