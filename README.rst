@@ -24,7 +24,7 @@ but alternate approach would likely be better off.
 other historical code for other approach would be added retroactively for potential reconsideration.
 use git log to see them.
 
-the final working version is `taxorpt_df.py`, which uses data frame in spark.  code runs, but slow UDF.
+the final working version is ``taxorpt_df.py``, which uses data frame in spark.  code runs, but slow UDF.
 
 
 db
@@ -39,8 +39,28 @@ It can be run from cron for automatic db creation and update
 
 ~~~~
 
-.rst code block test :)
 
+.rst test 
+
+``double backtick`` for monospace, reverse text rendering suitable as code highlight
+
+
+
+simple .rst pre-formatted block test :)
+
+
+::
+
+    blank line line +
+    indented text
+    will be treated verbatim without parsing/modification
+      but indentation is required
+  have not been able to find way to do it without indenting the preformatted text
+
+back to normal text
+
+
+.rst code block with syntax highlight test :)
 
 .. code:: bash
 
@@ -63,3 +83,4 @@ It can be run from cron for automatic db creation and update
         done
 
 back to normal text here
+
