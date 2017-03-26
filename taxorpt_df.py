@@ -1,3 +1,5 @@
+### taxorpt_df.py.2017.0227.beforeReorg ###
+
 ##  #!/usr/lib/spark/bin/pyspark
 
 
@@ -22,7 +24,7 @@
 # however, it is largely just old taxorpt sql queries casted into spark, no parallelization
 # To gain performance, need to parallelize, which means using data frame
 # this version of taxorpt_spark.py , together with pyphy_ext_spark.py, pyphy_spark.py, 
-# does NOT use dataframe and thus things are run in series.  slow.  took 20 min to process /home/bofh1/code/svn/taxo/db/protein_blast_hits.txt.head100
+# does NOT use dataframe and thus things are run in series.  slow.  took 20 min to process /home/hoti1/code/svn/taxo/db/protein_blast_hits.txt.head100
 
 # taxorpt_df.py
 # will be a new version that use data frame and thus parallelize things.
@@ -43,40 +45,24 @@
 # 2017.0224.    start with creating a trace table, a wide table with species taxid, parent taxid at genus, family, kingdom level.
      
 
-# taxoTraceTbl_df.py  [planned fork] [2017.0228]
-# - forked from taxorpt_df.py when it had a good usable trace table
-# - create trace table, utilize data frame, adding 1 column at a time for species, genus, family...
-#    -- this column add use UDF, which use sqlite, and seems to take a long time
-#    -- thus this trace table is treated as a prep step 
-# - trace table saved as parquet
-# - parquet will be loaded in future by taxorpt_df.py and do inner join with BLAST output data.     
-#    -- report run may only need the paquet and not the sqlite db...
-
-# 2017.0303  taxorpt_df.py    
-# - will read blast output
-# - will read parquet containing trace table (code mostly from sn-bb/trace_load.py)
-# - have two spark table, do inner join
-# - old code to create trace table (that has been moved to taxoTraceTbl_df.py) have been removed from this file
-# - process_cli fn are from old stuff, need adjustment.
-
 #http://stackoverflow.com/questions/12592544/typeerror-expected-a-character-buffer-object
 from __future__                 import print_function
 from pyspark                    import SparkContext, SparkConf
 from pyspark.sql                import SQLContext, Row
 from pyspark.sql.functions      import lit, udf
 from pyspark.sql.types          import StringType, StructField, StructType  # needed as return type for UDF.  ref: loc 4939 spark book 
-##from pyspark.sql.types         import *                                    # may as well import * ... 
+#from pyspark.sql.types         import *                                    # may as well import * ... 
 
 
-#from pyphy      import *               # need to use import rather than from for pyphy_ext.dbgLevel = 1 and stuff like that to lookup correctly.  
-#from pyphy_ext  import *
+# unable to find these modules :(   from doesn't complain, but fn usage below in UDF can't find it.)
+from pyphy      import *
+from pyphy_ext  import *
 ## may need to cretae SparkContext before invoking these...   or else the app somehow get context initiated from those modules...
-import pyphy                # needed so can set db path
+#import pyphy                # needed so can set db path
 #import pyphy_spark         # no longer need db, but may need SparkContext...
-import pyphy_ext            # needed so can set dbgLevel
-#import pyphy_ext_spark     # needed so can set dbgLevel
+#import pyphy_ext            # needed so can set dbglevel
+#import pyphy_ext_spark     # needed so can set dbglevel
 
-#pyphy_ext.dbgLevel=1       # should be set via cli -d .. -ddd arg
 
 
 import argparse 
@@ -85,68 +71,94 @@ import sys
 import time
 
 
-# static variable definition, adjust according to run requirement
-#taxoInputCsv       = "/home/bofh1/code/hoti-bb/taxo-spark/db/tree.table.csv.special2k" 
-#outputParquetFile  = "/home/bofh1/pub/taxoTraceTblParquet_allRank_sp2k"
-
-#outputParquetFile   = "/home/bofh1/pub/taxorpt_Parquet_tmp_pe8"
-progOutputFile      = "/home/bofh1/pub/taxorpt_df.rpt306.out"
-#taxoInputCsv        = "/home/bofh1/code/hoti-bb/taxo-spark/db/tree.table.csv" 
-#taxoInputCsv        = taxoInputCsv   # should really replace it with the sqlite db used by pyphy,   ~ line 210 +++
-# but may not be so trivial...  if req export to csv, 
-# then should get to the source dir of the ncbi download that was used to build the sqlite db.
-
-
-spkSqlTraceTableName    = "taxoTraceTblParquet0228"              
-inputParquetFile        = "/home/bofh1/pub/taxoTraceTblParquet_full_0228"
-
-
-# most likely won't need to change these:
-pythonPathAddition="/home/bofh1/code/hoti-bb/taxo-spark:/prj/idinfo/prog/local_python_2.7.9/lib/python2.7:/prj/idinfo/prog/local_python_2.7.9/lib/python2.7/site-packages"
-sparkContextAppName="sparksql_df_uge"
-sparkEventLogDir="file:///home/bofh1/pub/sparkEvent"
-
 # need to set PYTHONPATH in the spark-submit script, 
 # BUT can't do it here, it has no effect
-# at least for UDF, set in sparkContext setExecutorEnv()
 #if 'PYTHONPATH' not in os.environ:
-#        os.environ['PYTHONPATH'] = "/prj/idinfo/prog/local_python_2.7.9/lib/python2.7/site-packages/"
+#        os.environ['PYTHONPATH'] = "/db/idinfo/prog/local_python_2.7.9/lib/python2.7/site-packages/"
 #PYTHONPATH = os.environ['PYTHONPATH']
-#sys.path.insert(1, os.path.join(PYTHONPATH, "/home/bofh1/code/svn/taxo-spark/", "/home/bofh1/local_python_2.7.9/lib/python2.7/site-packages/" ))
-#sys.path.insert(1, os.path.join("/home/bofh1/code/hoti-bb/taxo-spark/", "/home/bofh1/local_python_2.7.9/lib/python2.7/site-packages/" ))
-
-
-# load the blast output, with list of accession number.
-# need to convert this to taxid, maybe with uniq and count, 
-# then ultimately join (maybe in diff fn)
-# may not need this after all, can use old fn... 
-def load_protein_list() :
-        print( "ie, load blast output")
-#end load_protein_list() 
+#sys.path.insert(1, os.path.join(PYTHONPATH, "/usr/prog/python/2.7.9-goolf-1.5.14-NX/lib/python2.7/site-packages/"))
+#sys.path.insert(1, os.path.join(PYTHONPATH, "/db/idinfo/prog/local_python_2.7.9/lib/python2.7/site-packages/", "/usr/prog/python/2.7.9-goolf-1.5.14-NX/lib/python2.7/site-packages/"))
+#sys.path.insert(1, os.path.join(PYTHONPATH, "/home/hoti1/code/svn/taxo-spark/", "/home/hoti1/local_python_2.7.9/lib/python2.7/site-packages/" ))
+#sys.path.insert(1, os.path.join("/home/hoti1/code/hoti-bb/taxo-spark/", "/home/hoti1/local_python_2.7.9/lib/python2.7/site-packages/" ))
 
 
 
-### from trace_load.py
-def load_trace_table() :                # most likely version w/o accession/taxid info, likely not needed here anymore
-        #outfile = "/home/bofh1/pub/trace_load_1108.out"
-        outfile = progOutputFile
-        #outfile = "/home/bofh1/pub/spark_acc2taxid_4.out"
+
+
+
+# from taxoTraceTbl.py (sn-bb)
+# this will become UDF
+# will use pyphy/pyphy_ext/sqlite, essentially serial python, to lookup parent.
+# first param, desiredRank, is at what rank level the parent being sought at is (eg species, genus)
+def createColForParentOfRank( taxid, desiredRank ): 
+        # new alg for real use by taxorpt_df:
+        currentRank = "need to get pyspark to import pyphy..."
+        currentRank = getRankByTaxid(taxid)
+        #returnString = "%s,%s=%s" % (taxid, desiredRank, currentRank )
+        #return returnString # tmp     # finally the IO is working out!!
+        #getRankNameByTaxid(taxid)  # this seems to get parent... not sure why named that wasy in phyphy_ext...
+        # ranking = compareRank( currentRank, desiredRank )
+        # 0 if equal
+        # -1 if currentRank is lower
+        # +1 if currentRank is higher than desiredRank (which should then stay put)
+        # if ranking > 0 : 
+        # ==> NO <==  
+        # don't need to be so careful.  if find out is lower, then need the parent rak anyway
+        # so, just ask for parent, and only if not found, then handle it differently
+        # the == case seems handled by getParentByTaxidRank already
+        #if( 0 ):               # if same rank, seems to take too long if use getParentByTaxidRank...!
+        if currentRank == desiredRank :
+                return taxid
+                #returnString = "%s==%s" % (currentRank, desiredRank )
+                #return returnString
+        else :
+                #returnString = "%s v %s" % (currentRank, desired )
+                #return returnString # tmp     # finally the IO is working out!!
+                # assume/try to get parent rank
+                # check to see if able to get it, 
+                # if can't, then handle as no parent... which should be treated as skip 
+                # and so can be same case as currentRank == desiredRank
+                # recursion maybe the way...
+                # getParentByTaxidRank was in pyphy_ext.py, hope rank is just the string...
+                #parentId = "fn call to getParentByTaxidRank seems to return err of html fn not found... may still need to fiddle with PYTHONPATH :( "
+                parentId = getParentByTaxidRank( taxid, desiredRank )
+                if( parentId == -1 ) : 
+                        # handle the return value of if it is "none" or "not found"...
+                        returnString = "-1:%s,%s" % (currentRank, desiredRank )
+                        return returnString
+                else :
+                        return parentId
+        return "should_never_get_here_err_Lin99"
+# end fn createColForParentOfRank( desiredRank ) 
+
+
+
+
+# adapting from taxoTraceTbl.py (sn-bb)
+# in  file: tree*csv                                 # taxonomy tree input
+# out file = "/home/bofh1/pub/node2trace_1107.out"   # output from various print cmd
+# out file: see: save("trace_table", "parquet")      # data table output (cwd of job)
+# create a wide taxonomy trace table by repeated self join of node ID with parent ID.
+def createTaxoTraceTable() :
+        outfile = "/home/hoti1/pub/taxoTraceTbl.out"
         outFH = open( outfile, 'w' )
         #outFH.write( "Test output to file from spark\n" )
         ## http://stackoverflow.com/questions/24996302/setting-sparkcontext-for-pyspark 
+
+        print( "   ### can i call pyphy fn here outside of UDF??   yes, so it is UDF not finding it.  hope setExecutorEnv fixes it ###")
+        tmpTest = getRankByTaxid("9606")
+        print(tmpTest)
+
         ##spkCtx = SparkContext( 'local', 'tin_pyspark_0724_local' )
-        #spkCtx = SparkContext( appName='tin_pyspark_31gb' )
-        #spkCtx = SparkContext( appName='tin_pyspark_yarn_trace_load_1108' )
-        #spkCtx = SparkContext( appName=sparkContextAppName )
-        #print( "   *** hello world sparkContext created" )
-        #print( "   *** hello world sparkContext created", file = outFH )
+        conf = SparkConf().setAppName( 'sparksql_df_uge' )
+        conf.set( "spark.eventLog.enabled", True )                             # maybe spark 1.5 don't support these, can't get em to work :(
+        conf.set( "spark.eventLog.dir", "file:///home/hoti1/pub" )             # will create app-id subdir in there.
+        #conf.setExecutorEnv( "PYTHONPATH", "/home/hoti1/code/hoti-bb/taxo-spark/" )             # 
+        conf.setExecutorEnv( "PYTHONPATH", "/home/hoti1/code/hoti-bb/taxo-spark/:/db/idinfo/prog/local_python_2.7.9/lib/python2.7:/db/idinfo/prog/local_python_2.7.9/lib/python2.7/site-packages" )             # 
 
-
-        conf = SparkConf().setAppName( sparkContextAppName )
-        conf.set( "spark.eventLog.enabled", False )                             
-        conf.set( "spark.eventLog.dir", sparkEventLogDir )                     # will create app-id subdir in there.
-        conf.setExecutorEnv( "PYTHONPATH", pythonPathAddition )             # 
+        #conf = conf.
         #https://districtdatalabs.silvrback.com/getting-started-with-spark-in-python to quiet log4j
+        #spkCtx = SparkContext( appName='pyspark_uge' )
         spkCtx = SparkContext( conf=conf)                                       # conf= is needed for spark 1.5
         print( "   ### hello world sparkContext created *L32*" )
         print( "   ### hello world sparkContext created *L32*", file = outFH )
@@ -157,98 +169,189 @@ def load_trace_table() :                # most likely version w/o accession/taxi
         # log4j settings is pretty good in trimming the log messages, but next one is simpler and does same thing
         spkCtx.setLogLevel("FATAL")
         
-
         sqlContext = SQLContext(spkCtx)         # can only have one instance of SQLContext
         #tabABsqlCtx = SQLContext(spkCtx)       # a second delcaration will result in not so useful object
-        print( "   *** hello world spark sql context created" )
-        print( "   *** hello world spark sql context created", file = outFH )
+        print( "   ### hello world spark sql context created" )
+        print( "   ### hello world spark sql context created", file = outFH )
 
-        #treeSqlCtx = spkCtx.textFile("tree.table.csv")  # tree table 
-        #partsT = treeSqlCtx.map(lambda l: l.split(","))
-        #treeTab = partsT.map(lambda p: (p[0], p[1].strip('"'), p[2].strip(), p[3].strip('"')))    
-        #schemaStringT = "taxid name parent rank"
-        #fieldsT = [StructField(field_name, StringType(), True) for field_name in schemaStringT.split()]
-        #schemaT = StructType(fieldsT)
-        #treeDF  = sqlContext.createDataFrame(treeTab,schemaT) 
+        #treeSqlCtx = spkCtx.textFile("tree.table.csv")  # taxonomy tree table (this is req input file)
+        #treeSqlCtx = spkCtx.textFile("/home/hoti1/code/hoti-bb/taxo-spark/db/tree.table.csv.special10")  # taxonomy tree table (this is req input file)
+        #treeSqlCtx = spkCtx.textFile("/home/hoti1/code/hoti-bb/taxo-spark/db/tree.table.csv")  # taxonomy tree table (this is req input file)
+        treeSqlCtx = spkCtx.textFile("/home/hoti1/code/hoti-bb/taxo-spark/db/tree.table.csv.special2k")  # taxonomy tree table (this is req input file)
+        partsT = treeSqlCtx.map(lambda l: l.split(","))
+        treeTab = partsT.map(lambda p: (p[0], p[1].strip('"'), p[2].strip(), p[3].strip('"')))    
+        schemaStringT = "taxid name parent rank"
+        fieldsT = [StructField(field_name, StringType(), True) for field_name in schemaStringT.split()]
+        schemaT = StructType(fieldsT)
+        treeDF  = sqlContext.createDataFrame(treeTab,schemaT) 
         #treeDF.printSchema()
         #treeDF.show()
-        #treeDF = DataFrame      # ??
 
-        #parquetFile = sqlContext.read.parquet("people.parquet")
-        #parquetFile.registerTempTable("parquetFile");
-        #trace_table = sqlContext.read.parquet("trace_table.parquet")
-        # above didn't work in c3p.  but stripping .parquet worked
-        #trace_table = sqlContext.read.parquet("trace_table")
-        trace_table = sqlContext.read.parquet(inputParquetFile)                 # oldSqlQuery
-        taxoTraceTblParquet = trace_table                                       # this work as dataframe obj, but not as table name in SQL.
-        #taxoTraceTblParquet = sqlContext.read.parquet(inputParquetFile)         # a 2nd reg used by newSqlQuery (copied from taxorpt_dt)  
+        # seeding an initial table before any join
+        tabT = []
+        tabT.append(treeDF)     
+
+        #treeCsv = tabT      # the source csv as a DF called treeCsv for many future queries to build up trace table
+        #tabT[0].registerTempTable("taxoTable")
+
+        tabT[0] = treeDF.withColumnRenamed("taxid", "taxid_T0").withColumnRenamed("name","name_T0").withColumnRenamed("parent","parent_T0").withColumnRenamed("rank","rank_T0")
 
 
-        print( "  ### parquet as loaded from disk " )
-        trace_table.printSchema()
-        trace_table.show(n=30)
-        #taxoTraceTblParquet.show(n=300)
+        ### *** 2017.0219
+        ### start with just appending a simple calculated column to a simple table... eg length_of_string( species ) or a count(*)... 
+        #   how to add col: http://stackoverflow.com/questions/33681487/how-do-i-add-a-new-column-to-a-spark-dataframe-using-pyspark
+        #print( "   ### Table before and after added column #L58#" )
+        #print( "   ### Table before and after added column #L58#", file = outFH )
+        #tabT[0].printSchema()
+        #tmpT  = tabT[0].withColumn( "parent_T1", lit("tba") ).withColumn( "rank_T1", lit("tba")  # add two columnX
+        #tmpT4 =   tmpT3.withColumn( "new5_name", getattr(tabT[0], "name_T0") )           # getattr returns a column
+        #tmpT.printSchema()
+        #tmpT.show()
 
-        #print( "  ### parquet after filter " )
-        # ref for .where() : https://spark.apache.org/docs/1.6.2/api/python/pyspark.sql.html?highlight=select#pyspark.sql.DataFrame.where 
-        #trace_table.select("*").where("rank_T0='species'").write.save( outputParquetFile, "parquet", "overwrite")    # this works, filter into smaller set befor save        
-        #trace_table_filter1 = trace_table.select("*").where("rank_T0<>'species'")           
-        #trace_table.show(n=300)   # not affected by select above...
-        #trace_table_filter1.show(n=300)
+        #print( "   ### trying UDF #L92#" )
+        # need to declare user's fn as spark UDF after spark context is created
+        #udfGetParentOfRank = udf( getParentOfRank, StringType() )
+        #tmpT5 = tabT[0].withColumn( "udf_id",   udfGetParent(   "taxid_T0", "name_T0", "parent_T0", "rank_T0" ) )
+        #tmpT5 = tabT[0].withColumn( "udf_1",   udfGetParentOfRank(   lit("species"), "taxid_T0", "name_T0", "parent_T0", "rank_T0" ) )
+        #tmpT5 = tabT[0].withColumn( "udf_1",   udfGetParentOfRank(   lit("species"), "taxid_T0", "name_T0", "parent_T0", "rank_T0", sqlContext ) )
+        # above don't work with sqlContext as param.... not sure what technicality is missing... 
+        # to add four column may need to create a new DF then join() 
+        # or maybe udf registration don't have to return StringType but a DF? RDD?
+        #tmpT5.printSchema()
+        #tmpT5.show()
+
+        #print( "   ### reassign back tabT[0] = tmpT... #L70#" )
+        #tabT[0] = tmpT5          # can reassign it back :_
+        #tabT[0].printSchema()
+        #tabT[0].show()
+
+
+        # join tree table with itself repeatedly to get parent info, forming a lineage in each row
+        # but this can go on a long chain.  lastIdx of 16 still only ended in phylum for
+        # 441936|Neodiprion scutel...|   270857|species  
+        # http://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=441936
+        # 23 ranks before reaching to "cellular org", it is an arthopod
+        ##lastIdx = 16
+        lastIdx = 1       # 1 = skip join for now, 2 = join once (get to name_T1 column)
+        LX = lastIdx - 1              # for quick access at last join table     ##defined in 2017.0221
+        for j in range(1,lastIdx):    # range(2,3) produces [2], so exclude last index.  think of calculus [2,3)
+            i = j - 1                 # i comes before j, and i has 1 less than j
+            #print( "running i = %s" % i ) 
+            print( "running j = %s" % j ) 
+            fieldname = "parent_T%s" % i
+            #print( "fieldname is set to %s" % fieldname ) 
+            #                                           *** T1 is wrong below .   need something dynamic, equiv to T[i]
+            #tabT[j] = tabT[j].join(treeDF, tabT[i].parent_T1 == treeDF.taxid, "inner")
+            tabT.append(treeDF)
+            ###
+            ### *** 2017.0219
+            ### *** code are still old.  most likely won't need to use for loop, at least not for number, maybe for enum class...
+            ### but prob should start with single species to genus merge first.
+            ### the join condition is what need to be rewritten with a complex fn that does lookup.  how to do that?? 
+            ###
+            tabT[j] = tabT[i].join(treeDF, getattr(tabT[i], fieldname) == treeDF.taxid, "inner") # http://stackoverflow.com/questions/31843669/how-to-pass-an-argument-to-a-function-that-doesnt-take-string-pyspark
+            tabT[j] = tabT[j].withColumnRenamed("taxid", "taxid_T%s" % j).withColumnRenamed("name","name_T%s" % j).withColumnRenamed("parent","parent_T%s" % j).withColumnRenamed("rank","rank_T%s" % j)
+            #tabT[j].show()      
+        #end for loop
+
+
+        # saving data for future use... 
+        tabT[LX].printSchema()      
+        #tabT[lastIdx-1].show()      
+        tabT[LX].show()      
+        #tabT[lastIdx-1].collect()       # lastIdx=15, .collect() crashed!!
+        ## output file: saving to parquet file.  loc: cwd of job.  it is actually a dir with many files
+        ## save works, but need to ensure col names are uniq
+        #~ disabling save for now, as don't currently use during dev and want to save time
+        #~~tabT[LX].select("*").write.save("taxoTraceTblParquet", "parquet", "overwrite")           # parquet format seems to be the default.  took 3.1 min
+        # https://spark.apache.org/docs/1.5.2/sql-programming-guide.html#generic-loadsave-functions     # Generic Load/Save
+        # http://spark.apache.org/docs/latest/sql-programming-guide.html#save-modes 
+
+        ## printing rdd:
+        ## https://spark.apache.org/docs/latest/programming-guide.html#printing-elements-of-an-rdd
+        ## maybe of interest in removing extra column...
+        ## https://blogs.msdn.microsoft.com/azuredatalake/2016/02/10/pyspark-appending-columns-to-dataframe-when-dataframe-withcolumn-cannot-be-used/
+
+
+
+        # 2017.0221 
+        #LX = lastIdx - 1         # for quick access at last join table, defined earlier now
+        #print( "   ### new UDF most 20-self-joins  #L208#" )
+        # need to declare user's fn as spark UDF after spark context is created
+        udfCreateColForParentOfRank = udf( createColForParentOfRank, StringType() )
+        tmpT5 = tabT[LX].withColumn(       "u5_spe",   udfCreateColForParentOfRank(  "taxid_T0", lit("species") ) )
+        tmpT5 =    tmpT5.withColumnRenamed("u5_spe", "taxid_T%s" % "1")
+        tmpT5 =    tmpT5.withColumn(       "u5_gen",   udfCreateColForParentOfRank(  "taxid_T0", lit("species") ) )      # more efficient if use taxid_T1 when done correctly
+        tmpT6 =    tmpT5.withColumn(       "u6_gen",   udfCreateColForParentOfRank(  "taxid_T1", lit("genus") ) )      # more efficient if use taxid_T1 when done correctly
+        tmpT6 =    tmpT6.withColumnRenamed("u6_gen", "taxid_T%s" % "2")
+        tmpT6 =    tmpT6.withColumn(       "u6_gen",   udfCreateColForParentOfRank(  "taxid_T0", lit("genus") ) )       # tmp
+        tmpT7 =    tmpT6.withColumn(       "u7_fam",   udfCreateColForParentOfRank(  "taxid_T2", lit("family") ) )
+        tmpT7 =    tmpT7.withColumnRenamed("u7_fam", "taxid_T%s" % "3")
+        tmpT7 =    tmpT7.withColumn(       "u7_fam",   udfCreateColForParentOfRank(  "taxid_T0", lit("family") ) )      # tmp
+        tmpT8 =    tmpT7.withColumn(       "u8_ord",   udfCreateColForParentOfRank(  "taxid_T3", lit("order") ) )
+        tmpT8 =    tmpT8.withColumnRenamed("u8_ord", "taxid_T%s" % "4")
+
+        
+        #tmpT5 = tabT[LX].withColumn( "udf_1",   udfCreateColForParentAtRank(   "taxid_T0" ) )
+        #tmpT5 = tabT[LX].withColumn( "udf_1",   udfCreateColForParentAtRank(   "species" ) )
+        #tmpT5 = tabT[0].withColumn( "udf_1",   XXcreateColForParentAtRank(   lit("species") )
+        # hmm... should I base it on tabT[0] and create a new series of table?
+        #tmpT5 = tabT[0].withColumn( "udf_id",   udfGetParent(   "taxid_T0", "name_T0", "parent_T0", "rank_T0" ) )
+        #tmpT5 = tabT[0].withColumn( "udf_1",   udfGetParentOfRank(   lit("species"), "taxid_T0", "name_T0", "parent_T0", "rank_T0" ) )
+        #tmpT5 = tabT[0].withColumn( "udf_1",   udfGetParentOfRank(   lit("species"), "taxid_T0", "name_T0", "parent_T0", "rank_T0", sqlContext ) )
+        # above don't work with sqlContext as param.... not sure what technicality is missing... 
+        # to add four column may need to create a new DF then join() 
+        # or maybe udf registration don't have to return StringType but a DF? RDD?
+        
+        print( "   ### Result from column additions ... " )
+        tabT[LX] = tmpT8
+        tabT[LX].printSchema()
+        tabT[LX].show()
 
         #tabT[lastIdx-1].registerTempTable("trace_table")
-        trace_table.registerTempTable("trace_table")                  # primary table name used by SQL query
-        #trace_table.registerTempTable("taxoTraceTblParquet")         # alt table name used by SQL (due to historical reason)
-        trace_table.registerTempTable(spkSqlTraceTableName)           # does table registration persist?  need change name for next instance?  should drop when done??
-        #trace_table_filter1.registerTempTable("taxoTraceTblFilter1") # table name used by SQL in runSqlQuery3        
+        tabT[LX].registerTempTable("taxoTraceTblParquet")
+        print( "   ### (*) * running SQL Query ... " )
+        print( "   ### (*) * running SQL Query ... ", file = outFH )
 
-        # running some sample SQL queries for sanity check (works, but not really needed anymore)
-        runOldSqlQuery=0
-        if( runOldSqlQuery ) : 
-                print( "  ### (*) * running SQL Query COUNT... " )
-                print( "  ### (*) * running SQL Query COUNT... ", file = outFH )
-                sqlResult = sqlContext.sql("SELECT COUNT( taxid_T0 ) FROM trace_table") # spark does NOT allow for ; at end of SQL !!
-                print( "   ### sqlResult: ***", file = outFH )
-                myList = sqlResult.collect()            # need .collect() to consolidate result into "Row"
-                print( "myList is: %s", myList )                        # [Row(_c0=1402066)]   # took about 20 sec (53sec if omit .show() after all the joins)
-                # run time on c3p with pe 16 and 16 GB e/a is also ~50 sec (w/ show).  
-                print( "myList is: %s", myList, file = outFH )          # this works too! 
-                print( "sqlResult is: %s", sqlResult )                  # sqlResult is: %s DataFrame[_c0: bigint]
-                print( "sqlResult is: %s", sqlResult, file = outFH )
-                #if( sqlResult.count() > 1 ):
-                #        print( "Houston, we got more than one element returned!")
-
-                # may want to try to query and show this record
-                # |taxid_T0|             name_T0|parent_T0|rank_T0|
-                # |  287144|Influenza A virus...|   119210|no rank|
-                # for plant, even lastIdx=15 wasn't enough to get the full lineage trace
+        sqlCmd1 = "SELECT COUNT( taxid_T0 ) FROM taxoTraceTblParquet" # spark does NOT allow for ; at end of SQL !!
+        sqlResult1 = sqlContext.sql( sqlCmd1 )
+        #myList = sqlResult1.collect()            # need .collect() to consolidate result into "Row"   ... still needed?  takes a long time... hmm... may not be collect taking long... maybe changed UDF...
+                                                # job 2717927  died cuz unable to finish collect.  
+        print( "   ### sqlQuery '%s': ###" % sqlCmd1, file = outFH )
+        print( "   ### myList is: %s", myList )                        # COUNT() : [Row(_c0=1,402,066)]   # full csv   
+        print( "   ### myList is: %s", myList, file = outFH )          # COUNT() : [Row(_c0=2034)]        # special2k input file
+        print( "   ### sqlResult is: %s", sqlResult1 )                  # sqlResult is: %s DataFrame[_c0: bigint]
+        print( "   ### sqlResult is: %s", sqlResult1, file = outFH )
 
 
-                print( "  ### (*) * running SQL Query SELECT... " )
-                print( "  ### (*) * running SQL Query SELECT... ", file = outFH )
-                #sqlResult = sqlContext.sql( "SELECT taxid from acc_taxid WHERE acc_ver = 'T02888.1' " )  # spark does NOT allow for ; at end of SQL !!
-                sqlResult = sqlContext.sql( "SELECT * from trace_table WHERE taxid_T0 = '287144' " )  # spark does NOT allow for ; at end of SQL !!
-                print( "   ### sqlResult: ***", file = outFH )
-                myList = sqlResult.collect()            # need .collect() to consolidate result into "Row"
-                ## collect put all data into a single machine, so avoid running till the end for true big data
-                print( "myList is: %s", myList )                        # [Row(_c0=1402066)]   # took about 20 sec (53sec if omit .show() after all the joins)
-                print( "myList is: %s", myList, file = outFH )          # this works too! 
-                print( "sqlResult is: %s", sqlResult )                  # sqlResult is: %s DataFrame[_c0: bigint]
-                print( "sqlResult is: %s", sqlResult, file = outFH )
+        sqlCmd2 = "SELECT COUNT( taxid_T0 ) FROM taxoTraceTblParquet where rank_T0 = 'species'" # spark does NOT allow for ; at end of SQL !!
+        sqlResult2 = sqlContext.sql( sqlCmd2 )
+        #myList = sqlResult2.collect()            # need .collect() to consolidate result into "Row"   ... still needed? 
+        print( "   ### sqlQuery '%s': ###" % sqlCmd2, file = outFH )
+        print( "   ### myList is: %s", myList )                        # 
+        print( "   ### myList is: %s", myList, file = outFH )          # 
 
-                #myList = sqlResult.collectAsMap()      # sqlResult is DF, not RDD, no collectAsMap fn.
-                # sqlResult is DF, not RDD.  specifically, it is DataFrame[taxid: string]
-                #myList = sqlResult.collect()            # need .collect() to consolidate result into "Row"
-                #print( myList[0].taxid )                # taxid is the name of the column specified in select
-                #print( myList[0].taxid, file = outFH )  # taxid is the name of the column specified in select
-        #end if( runSqlQuery )
+        sqlCmd3 = "SELECT COUNT( taxid_T0 ) FROM taxoTraceTblParquet where rank_T0 = 'no rank'" # spark does NOT allow for ; at end of SQL !!
+        sqlResult3 = sqlContext.sql( sqlCmd3 )
+        #myList = sqlResult3.collect()            # need .collect() to consolidate result into "Row"   ... still needed? 
+        print( "   ### sqlQuery '%s': ###" % sqlCmd3, file = outFH )
+        print( "   ### myList is: %s", myList )                        # 
+        print( "   ### myList is: %s", myList, file = outFH )          # 
+
+
+        #if( sqlResult.count() > 1 ):
+        #        print( "Houston, we got more than one element returned!")
+
+
 
         print( "   ### good bye world !!" )
         print( "   ### good bye world !!", file = outFH )
         outFH.close()
-        spkCtx.stop()           # close things off nicely to avoid error in log file
+        spkCtx.stop()   # need to close off spark context to avoid err message in output/log
         exit 
-# end load_trace_table()
+#end createTaxoTraceTable() 
+
+
 
 
 
@@ -309,15 +412,15 @@ def process_cli( outFH ) :
 
 
 #def run_taxo_reporter( args ) :
-def run_taxo_reporter( args, outFH ) :
-#%def run_taxo_reporter( args, taxoHandle, outFH ) :   #% prob don't want taxoHandle in spark...
+#def run_taxo_reporter( outFH, args ) :
+def run_taxo_reporter( args, taxoHandle, outFH ) :
 
         print( "   *** inside run_taxo_reporter() L96", file = outFH )
         print( "   *** inside run_taxo_reporter() L96" )
         # need to prep html file with header early so that debug message will print to it correctly.
         if args.html :
-            #pyphy_ext_spark.prepHtmlHeader( args.outfile )
-            pyphy_ext.prepHtmlHeader( args.outfile )
+            pyphy_ext_spark.prepHtmlHeader( args.outfile )
+            #pyphy_ext.prepHtmlHeader( args.outfile )
 
         ### this block just print various debug info if -d(dd) is specified
         infile  = args.infile
@@ -332,51 +435,25 @@ def run_taxo_reporter( args, outFH ) :
             print( "<!--job name, desc: '%s', '%s'-->" ) % (args.jobName, args.jobDesc) 
 
         # configure parameters for imported modules
-        pyphy_ext.dbgLevel = args.debuglevel                
-        #pyphy_ext_spark.dbgLevel = args.debuglevel 
+        pyphy_ext_spark.dbgLevel = args.debuglevel 
         #--pyphy_spark.db = args.db  # --db should have full path
 
         ### process input, then call fn to print it out to plain text or html file
-        ### for blast output file, typically args.col=3, args.IFS='|'
-        (accVerFreqList, recProcessed, rejectedRowCount) = pyphy_ext.file2accVerList( infile, args.col, args.IFS )  
-        #(accVerFreqList, recProcessed, rejectedRowCount) = pyphy_ext_spark.file2accVerList( infile, args.col, args.IFS, taxoHandle )  
-
-        print( "   ### tmp checking accVerFreqList, result of parsing blast input " )
-        print( "   ### tmp checking accVerFreqList, result of parsing blast input ", file = outFH )
-        print( accVerFreqList )
-        print( accVerFreqList, file = outFH )
-        print( "   *** tmp exiting run_taxo_reporter() L346" )
-        print( "   *** tmp exiting run_taxo_reporter() L346", file = outFH )
-        # see bottom of file for eg of accVerFreqList data structure.  
-        # so likely no trivial way to convert this into dataframe for subsequent join 
-        # may as well write a new fn to read the blast output and put directly into dataframe.
-        
-        return                          ### ++ FIXME!!
-
-        #% tmp exit, till get new code in.
-        #% file2acc... is where action begin, and need to get the spark handle...   TODO ++ FIXME ++
-        #% but file2acc process one line at a time, and build the accVerFreqList on the fly... 
-        #% either do this whole step in spark and produce the same list as return value
-        #% or potentially leave this mostly alone for now, and convert the list into DataFrame and do the join as next step...
+        #(accVerFreqList, recProcessed, rejectedRowCount) = pyphy_ext_spark.file2accVerList( infile, args.col, args.IFS )  
+        (accVerFreqList, recProcessed, rejectedRowCount) = pyphy_ext_spark.file2accVerList( infile, args.col, args.IFS, taxoHandle )  
+        ### file2acc... is where action begin, and need to get the spark handle...   TODO ++
         uniqAccVerCount    = len(accVerFreqList) 
-        #% 2017.0306 ++ TODO ++ start dataframing here 
-        #% summarizeAccVerList() is where it take acc list and their freq, and lookup the lineage trace.
-        #% so that's where spark join will replace much of its original fn
-        #taxidFreqTable = pyphy_ext_spark.summarizeAccVerList( accVerFreqList, taxoHandle )
-        taxidFreqTable = pyphy_ext.summarizeAccVerList( accVerFreqList, taxoHandle )
+        taxidFreqTable = pyphy_ext_spark.summarizeAccVerList( accVerFreqList, taxoHandle )
         if args.html :
-            #pyphy_ext_spark.prettyPrintHtml( taxidFreqTable, args.jobName, args.jobDesc, uniqAccVerCount, recProcessed, rejectedRowCount, outfile ) 
-            #pyphy_ext_spark.prepHtmlEnding( outfile )
-            pyphy_ext.prettyPrintHtml( taxidFreqTable, args.jobName, args.jobDesc, uniqAccVerCount, recProcessed, rejectedRowCount, outfile ) 
-            pyphy_ext.prepHtmlEnding( outfile )
+            pyphy_ext_spark.prettyPrintHtml( taxidFreqTable, args.jobName, args.jobDesc, uniqAccVerCount, recProcessed, rejectedRowCount, outfile ) 
+            pyphy_ext_spark.prepHtmlEnding( outfile )
             pass
         else :
-            #pyphy_ext_spark.prettyPrint( taxidFreqTable, outfile, taxoHandle ) 
-            pyphy_ext.prettyPrint( taxidFreqTable, outfile ) 
+            pyphy_ext_spark.prettyPrint( taxidFreqTable, outfile, taxoHandle ) 
             print( "Uniq Accession.V count: %d.  Total row processed: %d. Rejected: %d." % ( uniqAccVerCount, recProcessed, rejectedRowCount ) )
-        #infile.close()
-        #outfile.close()
-        #pass
+        infile.close()
+        outfile.close()
+        pass
         print( "   *** exiting run_taxo_reporter() L136", file = outFH )
 # end run_taxo_reporter( args, taxoHandle, outFH )
 
@@ -385,30 +462,30 @@ def run_taxo_reporter( args, outFH ) :
 
 ####
 ####    fn def below should no longer be needed anymore in taxorpt_df.py      2017.0224
-####    they are just example only, there should be no use for this code anymore
-####    which is mostly eg oo-based query code.
 ####
+        
+
 def _abandone__main_with_spark_pyphy_oo():
         #print( "hello OOP :) " )
-        outfile = "/home/bofh1/pub/taxorpt-spark.out"
+        outfile = "/home/hoti1/pub/taxorpt-spark.out"
         outFH = open( outfile, 'w' )
         print( "   *** hello OOP world :)  start of spark job, before declaring a SparkContext...", file = outFH )
         print( "   *** outfile is set to %s " % outfile, file = outFH )
 
         ## ch 8 of Learning Spark
         conf = SparkConf()
-        conf.set( "spark.app.name", "taxorpt_spark_conf_2017_0216_c3p")          # better off to leave conf as spark-submit params
+        conf.set( "spark.app.name", "taxorpt_spark_conf_2017_0216_c3po")        # better off to leave conf as spark-submit params
         #conf.set( "spark.master", "local" )                                     # if use this, not in history server, but at least see some better output!
         #conf.set( "spark.master", "yarn" )
         #conf.set( "spark.submit.deployMode", "cluster" )
-        conf.set( "spark.eventLog.enabled", False )                             # maybe spark 1.5 don't support these, can't get em to work :(
-        conf.set( "spark.eventLog.dir", "file:///home/bofh1/pub" )             # will create app-id subdir in there.
+        conf.set( "spark.eventLog.enabled", True )                             # maybe spark 1.5 don't support these, can't get em to work :(
+        conf.set( "spark.eventLog.dir", "file:///home/hoti1/pub" )             # will create app-id subdir in there.
 
         ## http://stackoverflow.com/questions/24996302/setting-sparkcontext-for-pyspark
         ## https://spark.apache.org/docs/1.5.0/configuration.html
         #sc = SparkContext( 'local', 'taxorpt_pyspark_local_0727' )
         #sc = SparkContext( appName='taxorpt_spark_yarn_0812_noSQLite' )         # taxorpt w/ sqlite runs in yarn mode, get .html output, but UI don't capture stdout or stderr, hard to debug!
-        sc = SparkContext( appName='taxorpt_spark_c3p_0216_noSQLite' )           # taxorpt w/ sqlite runs in yarn mode, get .html output, but UI don't capture stdout or stderr, hard to debug!
+        sc = SparkContext( appName='taxorpt_spark_c3po_0216_noSQLite' )         # taxorpt w/ sqlite runs in yarn mode, get .html output, but UI don't capture stdout or stderr, hard to debug!
         #sc = SparkContext( conf=conf )                                          # conf= is needed for spark 1.5
         # for now need to run in local mode, don't know why can't get output from yarn mode
         print( "   *** hello world sparkContext created" )
@@ -416,7 +493,13 @@ def _abandone__main_with_spark_pyphy_oo():
 
         taxoHandle = pyphy_spark.pyphy_spark_class(sc,outFH)
 
-        runTest = 1             # c3p result in ~/pub/uge*spark*run3
+        ## here really call the taxorpt processing
+
+
+
+
+
+        runTest = 1             # c3po result in ~/pub/uge*spark*run3
         if( runTest ):
                 print( "   *** taxorpt-spark running test L181..." )
                 print( "   *** taxorpt-spark running test L181...", file = outFH )
@@ -425,7 +508,6 @@ def _abandone__main_with_spark_pyphy_oo():
                 print( result, file = outFH )
                 
 
-        #%
         ## here really call the taxorpt processing
         print( "   *** taxorpt_spark starting main report work L190" )
         print( "   *** taxorpt_spark starting main report work L190", file = outFH )
@@ -436,7 +518,7 @@ def _abandone__main_with_spark_pyphy_oo():
 
 
 
-        runMoreTest = 0         # c3p result in ~/pub/uge*spark*run3
+        runMoreTest = 0         # c3po result in ~/pub/uge*spark*run3
         if( runMoreTest ):
                 ## test a few more fn, from pyphy_tester.py
 
@@ -498,44 +580,26 @@ def _abandone__main_with_spark_pyphy_oo():
 # end main_with_spark_pyphy_oo()
 
 
-
-
-## when fixed and done, move this global declaration to top of file for easy file name change
-## consider moving schemaFields as global def as well, but then the parser/splitting part is still not trivial to change...
-#acc2taxid_db_file = "nucl_gss.accession2taxid.head100"  # don't remember where file was found, but think was last file used in last prog that read acc2taxid table
-acc2taxid_db_file       = "/home/bofh1/code/hoti-bb/taxo-spark/db/prot+nucl_wgs+nucl_gb+nucl_est+nucl_gss.accession2taxid.csv"  # 31GB, 818,215,989 rows, job 2786873 took 23 min to read file and COUNT(*) w/ pe 5
-#acc2taxid_db_file       = "/home/bofh1/code/hoti-bb/taxo-spark/db/prot+nucl_wgs+nucl_gb+nucl_est+nucl_gss.accession2taxid.csv.head100" 
-#acc2taxid_db_file       = "/home/bofh1/code/hoti-bb/taxo-spark/db/prot+nucl_wgs+nucl_gb+nucl_est+nucl_gss.accession2taxid.csv.head5k" 
-acc2taxid_tablename     = "acc_taxid"
-taxidUniqList_tablename = "taxid_uniq_list_tab" 
-
-#def dont_use_anymore_main_with_spark():
-#def may_use_again_with_new_df__dont_use_anymore_main_with_spark():
-def load_acc2taxid_datafile() :
-        #outfile = "/home/bofh1/pub/taxorpt-spark.out"
-        #outFH = open( outfile, 'w' )
-        outFH = open( progOutputFile, 'w' )
+"""
+def dont_use_anymore_main_with_spark():
+        outfile = "/home/hoti1/pub/taxorpt-spark.out"
+        outFH = open( outfile, 'w' )
         print( "   *** hello world.  start of spark job, before declaring a SparkContext...", file = outFH )
 
 
         ## ch 8 of Learning Spark
         conf = SparkConf()
-        #conf.set( "spark.app.name", "taxorpt_spark_conf_2016_0729_local")     # better off to leave conf as spark-submit params
-        conf.set( "spark.app.name", sparkContextAppName) 
-        #conf.set( "spark.master", "local" )                                     # if use this, not in history server, but at least see some better output!
+        conf.set( "spark.app.name", "taxorpt_spark_conf_2016_0729_local")     # better off to leave conf as spark-submit params
+        conf.set( "spark.master", "local" )                                     # if use this, not in history server, but at least see some better output!
         #conf.set( "spark.master", "yarn" )
         #conf.set( "spark.submit.deployMode", "cluster" )
-        conf.set( "spark.eventLog.enabled", False )                            # maybe spark 1.5 don't support these, can't get em to work :(
-        conf.set( "spark.eventLog.dir", sparkEventLogDir )                     # will create app-id subdir in there.
-        #conf.set( "spark.eventLog.dir", "file:///home/bofh1/pub" )            # will create app-id subdir in there.
-        conf.setExecutorEnv( "PYTHONPATH", pythonPathAddition )
-        spkCtx = SparkContext( conf=conf ) 
-        spkCtx.setLogLevel("FATAL")
+        conf.set( "spark.eventLog.enabled", True )                             # maybe spark 1.5 don't support these, can't get em to work :(
+        conf.set( "spark.eventLog.dir", "file:///home/hoti1/pub" )             # will create app-id subdir in there.
 
         ## http://stackoverflow.com/questions/24996302/setting-sparkcontext-for-pyspark
         ## https://spark.apache.org/docs/1.5.0/configuration.html
         #sc = SparkContext( 'local', 'taxorpt_pyspark_local_mmdd_oldFn' )
-        #sc = SparkContext( appName='taxorpt_spark_yarn_mmdd_oldFnNoLongerUsed_wSQLite' )         # taxorpt w/ sqlite runs in yarn mode, get .html output, but UI don't capture stdout or stderr, hard to debug!
+        sc = SparkContext( appName='taxorpt_spark_yarn_mmdd_oldFnNoLongerUsed_wSQLite' )         # taxorpt w/ sqlite runs in yarn mode, get .html output, but UI don't capture stdout or stderr, hard to debug!
         #sc = SparkContext( conf=conf )                                          # conf= is needed for spark 1.5
         # for now need to run in local mode, don't know why can't get output from yarn mode
         print( "   *** hello world sparkContext created" )
@@ -544,7 +608,7 @@ def load_acc2taxid_datafile() :
 
         # maybe the sqlContext should be declared later, after some scheme things are added?
         # but they are done to sc.... anyway, so may not matter??
-        sqlContext = SQLContext(spkCtx)
+        sqlContext = SQLContext(sc)
         #print( "   *** hello world spark sql context created", file = outFH )
         ### let child create sqlc...
 
@@ -552,63 +616,30 @@ def load_acc2taxid_datafile() :
         ## see spark-eg/spark_acc2taxid_3.py for eg of some other constructs...
         #lines = sc.textFile("nucl_gss.accession2taxid")                # 484.763253 sec to count(*), ie 8 min to cound 39,517,524 rows
         #lines = sc.textFile("prot+nucl_wgs+nucl_gb+nucl_est+nucl_gss.accession2taxid.csv")  # largest file... 
-        #lines = sc.textFile("nucl_gss.accession2taxid.head100")         # 0.550907 sec to count (*)
+        lines = sc.textFile("nucl_gss.accession2taxid.head100")         # 0.550907 sec to count (*)
         #lines = sc.textFile("nucl_gss.accession2taxid")         # 0.550907 sec to count (*)
-        #lines = sc.textFile(acc2taxid_db_file)
-        #lines = spkCtx.textFile(acc2taxid_db_file)
-        lines = spkCtx.textFile(acc2taxid_db_file, use_unicode=False) # https://spark.apache.org/docs/1.6.0/api/python/pyspark.html?highlight=textfile#pyspark.SparkContext.wholeTextFiles
-        # no way to declare file has header line, which seems to have in scala (or a spark 2.0 feature?)
-
-
         parts = lines.map(lambda l: l.split("\t"))
         acc_taxid = parts.map(lambda p: (p[0], p[1].strip(), p[2].strip(), p[3].strip() ))
         schemaString = "acc acc_ver taxid gi" 
         fields = [StructField(field_name, StringType(), True) for field_name in schemaString.split()]
         schema = StructType(fields)
-        schemaAccTaxidDf = sqlContext.createDataFrame(acc_taxid,schema)
-        #schemaAccTaxidDf.registerTempTable("acc_taxid")
-        schemaAccTaxidDf.registerTempTable( acc2taxid_tablename )
-        print( "  ### learning about the schema setup #L555#... ", file = outFH )
-        print( "  ### learning about the schema setup #L555#... "  )
-        schemaAccTaxidDf.printSchema()                            # not sure how to redirect this to file...
-        schemaAccTaxidDf.show(n=5)                                # not sure how to redirect this to file...
+        
+        
+        ###+++   these seems to be needed by child fn...
+        ###      at this point some code are redundant and need to be cleaned (after confirm move to OOP)
+        schemaAccTaxid = sqlContext.createDataFrame(acc_taxid,schema)
+        schemaAccTaxid.registerTempTable("acc_taxid")
+        print( "  ** learning about the schema setup... ", file = outFH )
+        print( "  ** learning about the schema setup... "  )
+        schemaAccTaxid.printSchema()                            # not sure how to redirect this to file...
 
 
-        #print( "  * (*) * running Query of  SELECT taxid from acc_taxid WHERE acc_ver = '...' ", file = outFH )
-        #sqlResult = sqlContext.sql( "SELECT taxid from acc_taxid WHERE acc_ver = 'T02634.1' " )  # spark does NOT allow for ; at end of SQL !!
-        sqlCmd = "SELECT COUNT(*) from %s" % acc2taxid_tablename                                  # spark does NOT allow for ; at end of SQL !!
-        print( "  ### running Query of %s" % sqlCmd )
-        print( "  ### running Query of %s" % sqlCmd, file = outFH )
-        sqlResult = sqlContext.sql( sqlCmd )  
+        print( "  * (*) * running Query of  SELECT taxid from acc_taxid WHERE acc_ver = '...' ", file = outFH )
+        sqlResult = sqlContext.sql( "SELECT taxid from acc_taxid WHERE acc_ver = 'T02634.1' " )  # spark does NOT allow for ; at end of SQL !!
         myList = sqlResult.collect()            # need .collect() to consolidate result into "Row"
-        print( myList ) 
-        print( myList, file = outFH )    
-        #print( myList[0].taxid, file = outFH )  # taxid is the name of the column specified in select
+        print( myList, file = outFH )           #  next line works too, so things are fine here
+        print( myList[0].taxid, file = outFH )  # taxid is the name of the column specified in select
 
-        #print( "  ### trying dataframe filter:" )
-        #schemaAccTaxidDf.groupBy("taxid").count().show()   # works.  https://spark.apache.org/docs/1.6.0/sql-programming-guide.html#dataframe-operations
-        #taxidUqList = schemaAccTaxidDf.groupBy("taxid")   # https://spark.apache.org/docs/1.6.0/sql-programming-guide.html#dataframe-operations
-        # c3p has spark 1.6.0, so does have the above....  but after groupBy, many other DataFrame fn not avail :(
-        print( "  ### trying dataframe/sql fn filter :" )
-        #taxidUqList = schemaAccTaxidDf.select("taxid") # work
-        #taxidUqList = schemaAccTaxidDf.select("UNIQUE(taxid)" #  dont work
-        #taxidUqList = schemaAccTaxidDf.sql("SELECT UNIQUE(taxid)") # nope #ref https://spark.apache.org/docs/1.6.2/api/python/pyspark.sql.html
-        taxidUqList = sqlContext.sql("SELECT DISTINCT taxid FROM %s" % acc2taxid_tablename ) 
-        #taxidUqList.printSchema()   
-        #taxidUqList.show(n=25)
-
-        #print( "  ### trying dataframe/sql after registerTable :" )
-        #taxidUqListDf = sqlContext.sql("SELECT UNIQUE taxid FROM %s" % acc2taxid_tablename ) 
-        taxidUqList.registerTempTable( taxidUniqList_tablename )
-        taxidUqList.printSchema()   
-        taxidUqList.show(n=15)
-        sqlCmd = "SELECT COUNT(*) from %s" % taxidUniqList_tablename
-        print( "  ### running Query of %s" % sqlCmd )
-        print( "  ### running Query of %s" % sqlCmd, file = outFH )
-        sqlResult = sqlContext.sql( sqlCmd )  
-        myList = sqlResult.collect()            # need .collect() to consolidate result into "Row"
-        print( myList ) 
-        print( myList, file = outFH )    
 
         
         #print( "   *** Running traditional taxorpt code", file = outFH )
@@ -617,126 +648,36 @@ def load_acc2taxid_datafile() :
         #args = process_cli( outFH )
         #run_taxo_reporter( outFH, args ) 
 
-        ##~ this block prob never fully worked when last abandoned
-        ##~print( "   *** Testing run of sparksqlContext via import...", file = outFH )
-        ##~myList = pyphy_spark.testQueryWithSqlContext(sc,"T02634.1")              # this get called okay, actually code the fn is needed now.
+        print( "   *** Testing run of sparksqlContext via import...", file = outFH )
+        myList = pyphy_spark.testQueryWithSqlContext(sc,"T02634.1")              # this get called okay, actually code the fn is needed now.
         #myList = pyphy_spark.testQueryWithSqlContext(sc,sqlContext,"T02634.1")              # this get called okay, actually code the fn is needed now.
-        ##~print( myList, file = outFH )
+        print( myList, file = outFH )
         #print( myList[0].taxid, file = outFH )
-        ##~#++ more def needed before able to call column by name
+        #++ more def needed before able to call column by name
 
-        spkCtx.stop() 
+        sc.stop() 
         print( "   *** good bye world !!" )
         print( "   *** good bye world !!", file = outFH )
         outFH.close()
         return 0
-#end fn: load_acc2taxid_datafile()    # formerly end fn : dont_use_anymore_main_with_spark()
 
+# end fn : dont_use_anymore_main_with_spark()
+"""
+        
 
 
 
 def main():
-
-        outFH = open( progOutputFile, 'w' )
-        print( "   ### hello world.  start main() in spark job, before declaring a SparkContext..." )
-        print( "   ### hello world.  start main() in spark job, before declaring a SparkContext...", file = outFH )
-
-
-        ## ch 8 of Learning Spark
-        conf = SparkConf()
-        #conf.set( "spark.app.name", "taxorpt_spark_conf_2016_0729_local")     # better off to leave conf as spark-submit params
-        conf.set( "spark.app.name", sparkContextAppName) 
-        #conf.set( "spark.master", "local" )                                     # if use this, not in history server, but at least see some better output!
-        #conf.set( "spark.master", "yarn" )
-        #conf.set( "spark.submit.deployMode", "cluster" )
-        conf.set( "spark.eventLog.enabled", False )                            # maybe spark 1.5 don't support these, can't get em to work :(
-        conf.set( "spark.eventLog.dir", sparkEventLogDir )                     # will create app-id subdir in there.
-        #conf.set( "spark.eventLog.dir", "file:///home/bofh1/pub" )            # will create app-id subdir in there.
-        conf.setExecutorEnv( "PYTHONPATH", pythonPathAddition )
-        spkCtx = SparkContext( conf=conf ) 
-        spkCtx.setLogLevel("FATAL")
-
-        ## http://stackoverflow.com/questions/24996302/setting-sparkcontext-for-pyspark
-        ## https://spark.apache.org/docs/1.5.0/configuration.html
-        #sc = SparkContext( 'local', 'taxorpt_pyspark_local_mmdd_oldFn' )
-        #sc = SparkContext( appName='taxorpt_spark_yarn_mmdd_oldFnNoLongerUsed_wSQLite' )         # taxorpt w/ sqlite runs in yarn mode, get .html output, but UI don't capture stdout or stderr, hard to debug!
-        #sc = SparkContext( conf=conf )                                          # conf= is needed for spark 1.5
-        # for now need to run in local mode, don't know why can't get output from yarn mode
-        print( "   ### hello world sparkContext created" )
-        print( "   ### hello world sparkContext created", file = outFH )
-
-
-        ## here really call the taxorpt processing
-        print( "   ### taxorpt_spark starting main report work L666" )
-        print( "   ### taxorpt_spark starting main report work L666", file = outFH )
-        args = process_cli( outFH )
-        run_taxo_reporter( args, outFH ) 
-        #run_taxo_reporter( args, taxoHandle, outFH ) 
-        print( "   ### taxorpt_spark completes main report work" )
-        print( "   ### taxorpt_spark completes main report work", file = outFH )
-        args.infile.close()
-        args.outfile.close()
-        spkCtx.stop()
-        outFH.close()
-        #args = process_cli()
-        #run_taxo_reporter( args ) 
+        args = process_cli()
+        run_taxo_reporter( args ) 
 # main()-end
 
 ### end of all fn definition, begin of main program flow.
-main()
+#main()
 #main_with_spark()
 ##main_with_spark_pyphy_oo()      # expect to be called with an input (and output) file arg.  (?) or uge/spark may wait forever for input in stdin...
 
-# main execution of this file for taxorpt_spark.py 2017.0304
-#load_trace_table()             # most likely old version w/o accession2taxid info
-#load_acc2taxid_datafile()       # forked/adopted by taxoTraceTbl_df.py, will likely not needed here anymore
 
+# main execution of this file for taxorpt_spark.py 2017.0224
+createTaxoTraceTable() 
 
-
-"""
-results so far.
-even when appending treeDF, don't seems to be making 4 column addition at a time, so can use this for now.
-root
- |-- taxid_T0: string (nullable = true)
- |-- name_T0: string (nullable = true)
- |-- parent_T0: string (nullable = true)
- |-- rank_T0: string (nullable = true)
- |-- P@subspecies_udf1: string (nullable = true)
- |-- N@subspecies_udf1: string (nullable = true)
- |-- P@species_udf2: string (nullable = true)
- |-- N@species_udf2: string (nullable = true)
- |-- P@genus_udf3: string (nullable = true)
- |-- N@genus_udf3: string (nullable = true)
- |-- P@family_udf4: string (nullable = true)
- |-- N@family_udf4: string (nullable = true)
- |-- P@superkingdom_udf5: string (nullable = true)
- |-- N@superkingdom_udf5: string (nullable = true)
-
-+--------+--------------------+---------+-----------+--------------------+-----------------+------------------+--------------------+----------------+------------+-----------------+-------------+--------------------+-------------------+
-|taxid_T0|             name_T0|parent_T0|    rank_T0|   P@subspecies_udf1|N@subspecies_udf1|    P@species_udf2|      N@species_udf2|    P@genus_udf3|N@genus_udf3|    P@family_udf4|N@family_udf4| P@superkingdom_udf5|N@superkingdom_udf5|
-+--------+--------------------+---------+-----------+--------------------+-----------------+------------------+--------------------+----------------+------------+-----------------+-------------+--------------------+-------------------+
-| "taxid"|                name| "parent"|       rank|-1:no rank,subspe...|          unknown|-1:no rank,species|             unknown|-1:no rank,genus|     unknown|-1:no rank,family|      unknown|-1:no rank,superk...|            unknown|
-| 1035824|Trichuris sp. ex ...|    36086|    species|                   1|             root|           1035824|Trichuris sp. ex ...|           36086|   Trichuris|           119093|  Trichuridae|                2759|          Eukaryota|
-|    9606|        Homo sapiens|     9605|    species|                   1|             root|              9606|        Homo sapiens|            9605|        Homo|             9604|    Hominidae|                2759|          Eukaryota|
-| 1383439|Homo sapiens/Mus ...|  1002697|    species|                   1|             root|           1383439|Homo sapiens/Mus ...|               1|        root|                1|         root|                2759|          Eukaryota|
-|    9605|                Homo|   207598|      genus|                   1|             root|                 1|                root|            9605|        Homo|             9604|    Hominidae|                2759|          Eukaryota|
-|  207598|           Homininae|     9604|  subfamily|                   1|             root|                 1|                root|               1|        root|             9604|    Hominidae|                2759|          Eukaryota|
-|    9604|           Hominidae|   314295|     family|                   1|             root|                 1|                root|               1|        root|             9604|    Hominidae|                2759|          Eukaryota|
-|  314295|          Hominoidea|     9526|superfamily|                   1|             root|                 1|                root|               1|        root|                1|         root|                2759|          Eukaryota|
-|    9604|           Hominidae|   314295|     family|                   1|             root|                 1|                root|               1|        root|             9604|    Hominidae|                2759|          Eukaryota|
-|    9577|         Hylobatidae|   314295|     family|                   1|             root|                 1|                root|               1|        root|             9577|  Hylobatidae|                2759|          Eukaryota|
-|    9526|          Catarrhini|   314293|  parvorder|                   1|             root|                 1|                root|               1|        root|                1|         root|                2759|          Eukaryota|
-|  314293|         Simiiformes|   376913| infraorder|                   1|             root|                 1|                root|               1|        root|                1|         root|                2759|          Eukaryota|
-|  376913|         Haplorrhini|     9443|   suborder|                   1|             root|                 1|                root|               1|        root|                1|         root|                2759|          Eukaryota|
-|    9443|            Primates|   314146|      order|                   1|             root|                 1|                root|               1|        root|                1|         root|                2759|          Eukaryota|
-
-#####
-#
-# data structure for accVerFreqList 
-#
-{'WP_016005452.1': {'Freq': 1, 'Taxid': -1, 'Rank': 'no rank'}, 'YP_003587867.1': {'Freq': 1, 'Taxid': '687342', 'Rank': 'species'}, 'YP_008003934.1': {'Freq': 1, 'Taxid': '1293540', 'Rank': 'species'}, 'YP_025251.1': {'Freq': 1, 'Taxid': '249151', 'Rank': 'species'}, 'YP_006908615.1': {'Freq': 1, 'Taxid': '166056', 'Rank': 'species'}, 'NP_073336.1': {'Freq': 1, 'Taxid': '37108', 'Rank': 'species'}, 'NP_045018.1': {'Freq': 1, 'Taxid': -1, 'Rank': 'no rank'}, 'YP_003358245.1': {'Freq': 1, 'Taxid': '150286', 'Rank': 'species'}, 'YP_025195.1': {'Freq': 1, 'Taxid': '111874', 'Rank': 'species'}, 'YP_002302349.1': {'Freq': 1, 'Taxid': -1, 'Rank': 'no rank'}, 'NP_044851.1': {'Freq': 1, 'Taxid': '33708', 'Rank': 'species'}, ...
-#
-# so likely no trivial way to convert this into dataframe for subsequent join 
-# may as well write a new fn to read the blast output and put directly into dataframe.
-
-"""
