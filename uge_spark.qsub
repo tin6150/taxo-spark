@@ -62,23 +62,3 @@ spark-submit  taxoTraceTbl_df.py   ##  new join w/ acc2taxid list in dev
 # -d
 
 
-
-
-### long running jobs:
-### 2778206 0.59894 df-trc-pe3 bofh1        r     03/03/2017 10:43:18 default.q@skywalker-2-10.cm.cl                                   32
-###   creating parquet with UDF on taxo tree csv, 1.4M rows needing 4x2 level of UDF col addition, taking 2+ days now, h_rt ~80 hrs
-###   killed after 3 days 6 hours (h_rt ~ 80 hrs)
-
-### done 2791393 0.60500 df-trc-pe3 bofh1        r     03/05/2017 07:39:22 default.q@skywalker-3-1.cm.clu                                   34
-###   using acc2taxid to create a distinct list of taxid, then join with taxo tree.  this should be smaller than 1.4M rows.
-### 2791739 0.60333 df-trc-pe3 bofh1        r     03/05/2017 08:50:11 default.q@skywalker-3-1.cm.clu                                   34
-###   optimization 1 of taxoTraceTbl_df (job 2791393 ) just save to parquet _noUDF  ==> 1,222,746 uniq taxid$
-
-
-###2794262 0.60333 df-trc-pe3 bofh1        r     03/05/2017 17:14:47 default.q@skywalker-2-10.cm.cl                                   34
-###   tba, optimization 2 of taxoTraceTbl_df (job 2791393 ) in that UDF can use prev level TaxID istead of start from bottom level
-
-### some of the above died...
-### rerunning  taxoTraceTbl_df.py  with parquet output to ...309.   thing this seems to have finally worked, within the 78 hrs, maybe 32 cores...
-### 2826356 0.61000 df-tid-pe3 bofh1        r     03/09/2017 19:09:47 default.q@skywalker-4-5.cm.clu                                  320
-

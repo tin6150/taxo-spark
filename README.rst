@@ -38,8 +38,14 @@ sn5050
         # with the added benefits of code highlight
         # but my experience seems to be that this become an execution directive
         # does below just show command or execution of 'date' 'hostname' and 'uptime' ?
-        date
+        date 
         hostname
         uptime
+        # okay, github seems to render this as code block with highlight... more test:
+        FECHA=`date +%Y%m%d-%H%M`
+        LIST=$( seq 1 10 )
+        for ITEM in $LIST; do
+                echo $ITEM > /dev/null 
+        done
 
 back to normal text here
