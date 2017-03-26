@@ -1,6 +1,6 @@
 
 taxo-spark
-----------
+==========
 
 SparkSQL version of 
 taxonomy reporter tool (https://github.com/tin6150/taxonomy_reporter)
@@ -24,8 +24,16 @@ but alternate approach would likely be better off.
 other historical code for other approach would be added retroactively for potential reconsideration.
 use git log to see them.
 
-sn5050
 
+db
+--
+
+The db/ folder contain code that download NCBI taxonomy database, and massage it into a sqlite db
+It can be run from cron for automatic db creation and update 
+
+
+
+-sn5050
 
 ~~~~
 
@@ -34,10 +42,14 @@ sn5050
 
 .. code:: bash
 
-        # wikipedia says this will be treated as pre-formatted literal block
-        # with the added benefits of code highlight
-        # but my experience seems to be that this become an execution directive
-        # does below just show command or execution of 'date' 'hostname' and 'uptime' ?
+        # use 
+        #
+        # .. code:: bash 
+        #     echo "Hello world"
+        #
+        # to create pre-formatted code block with syntax highlight.
+        # be careful though, as (typo?) or (some system?) may treat it as execution directive
+        # below should show command and not execution of 'date' 'hostname' and 'uptime' ?
         date 
         hostname
         uptime
