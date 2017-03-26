@@ -1,6 +1,6 @@
 
 ## #!/bin/env python
-## #!/usr/prog/python/3.4.2-goolf-1.5.14-NX/bin/python3   (code is not python3 compatible).
+## #!/prog/python/3.4.2-goolf-1.5.14-NX/bin/python3   (code is not python3 compatible).
 ##  when deploy as  python module, don't need the magic line 
 
 
@@ -9,10 +9,12 @@
 ## but sqlite3 will still be used for the small thing (name/nodes lookup, as that had some special sause in the load)
 
 ## version 1.1, with queries to Spark instead of sqlite
-## tin 2015.0729
+##              OOP should be completed 
+##              no need to import sqlite3 !!  yeay!!
+# tin 2016.08.08
 
 from __future__ import print_function
-import sqlite3          # this work in pyspark...
+#import sqlite3          # this work in pyspark...
 
 from pyspark import SparkContext, SparkConf
 from pyspark.sql import SQLContext, Row
@@ -30,7 +32,7 @@ from pyspark.sql.types import *
 #--lines = sc_acc.textFile("nucl_gss.accession2taxid.head100")         # 0.550907 sec to count (*)
 
 #db = "ncbi-taxo-acc.db"   # ncbi-taxo-gi.db  
-db = "ncbi-taxo-acc.db"   # ncbi-taxo-gi.db  
+#db = "ncbi-taxo-acc.db"   # ncbi-taxo-gi.db  
 unknown = -1                    # used in getPathByTaxid to check for bad rank...
 no_rank = "no rank"
 
@@ -40,16 +42,20 @@ class pyphy_spark_class :
         def __init__(self,sc,outputFH) :
                 #pyphy_spark_instanceVar = 'dummy var for now'
                 self.outFH = outputFH
-                #outfile = "/home/hoti1/pub/pyphy_spark.out"
+                #outfile = "/home/bofh1/pub/pyphy_spark.out"
                 #out_FH = open( outfile, 'w' )
-                print( "  ** Inside OOP ** start of __init__"  )
-                print( "  ** Inside OOP ** start of __init__", file = self.outFH  )
+                print( "  ** Inside OOP ** start of __init__ *L45*"  )
+                print( "  ** Inside OOP ** start of __init__ *L45*", file = self.outFH  )
                 self.verStamp = "2016.0810.1"
                 self.sqlContext = SQLContext(sc)
 
-                self.lines = sc.textFile("nucl_gss.accession2taxid.head100")                           # ~2 min for 1 select in LOCAL
+                #self.lines = sc.textFile("nucl_gss.accession2taxid.head100")                           # ~2 min for 1 select in LOCAL
                 #self.lines = sc.textFile("nucl_gss.accession2taxid")         
-                #self.lines = sc.textFile("prot+nucl_wgs+nucl_gb+nucl_est+nucl_gss.accession2taxid.csv") # 700s for 1 SELECT in YARN
+                ###++~~self.lines = sc.textFile("prot+nucl_wgs+nucl_gb+nucl_est+nucl_gss.accession2taxid.csv") # 700s for 1 SELECT in YARN
+                self.lines = sc.textFile("db/prot+nucl_wgs+nucl_gb+nucl_est+nucl_gss.accession2taxid.csv") # 700s for 1 SELECT in YARN
+                ###++~~ above was the last file used in cloudera era.... got from hdfs back to c3po now
+                ##self.lines = sc.textFile("/home/bofh1/code/svn/taxo/db/download/nucl_gss.accession2taxid.head100")                           # cloudera era: ~2 min for 1 select in LOCAL
+                #self.lines = sc.textFile("/home/bofh1/code/svn/taxo/db/download/nucl_gss.accession2taxid")                          
                 # history server: http://nrusca-clp24001.nibr.novartis.net:18088/ 
                 self.parts = self.lines.map(lambda l: l.split("\t"))
                 self.acc_taxid = self.parts.map(lambda p: (p[0], p[1].strip(), p[2].strip(), p[3].strip() ))
@@ -61,7 +67,8 @@ class pyphy_spark_class :
                 self.schemaAccTaxid.registerTempTable("acc_taxid")
 
                 print( "  ** Inside OOP ** registering tree table", file = self.outFH  )
-                self.tree_lines = sc.textFile("tree.table.csv")
+                #self.tree_lines = sc.textFile("tree.table.csv")
+                self.tree_lines = sc.textFile("db/tree.table.csv")
                 self.tree_parts = self.tree_lines.map(lambda l: l.split(","))
                 self.tree = self.tree_parts.map(lambda p: (p[0], p[1].strip('"'), p[2].strip('"'), p[3].strip('"') ))  # hope this strip the quotes...
                 ## sample tree.table.csv:
@@ -82,49 +89,39 @@ class pyphy_spark_class :
 
 
 
+        ## this is just a test method defined during early dev
+        ## no longer has a real use for this.
         def testQuery(self,tax_id,limit=1):
-                print( "  ** Inside OOP [start testQuery()]", file = self.outFH  )
+                print( "  ** Inside OOP [start testQuery()] Li92"  )
+                print( "  ** Inside OOP [start testQuery()] Li92", file = self.outFH  )
                 print( self.verStamp )
                 print( "  ** learning about the schema setup... [in child fn]", file = self.outFH  )                       # local mode will see this in web log
                 self.schemaAccTaxid.printSchema()                            # not sure how to redirect this to file...
                 #sqlResult = sqlContext.sql( "SELECT count(*) from acc_taxid" ) # spark does NOT allow for ; at end of SQL !!
+
+                print( "  ** sampling acc_ver table", file = self.outFH  )                       # local mode will see this in web log
+                command = "SELECT * from acc_taxid WHERE acc_ver ='" + tax_id + "'" # spark does NOT allow for ; at end of SQL !!
+                sqlResult = self.sqlContext.sql( command ) 
+                myList = sqlResult.collect()            # need .collect() to consolidate result into "Row"
+                print( myList )
+                print( myList, file = self.outFH  )
+
+                print( "  ** sampling tree table", file = self.outFH  )                       # local mode will see this in web log
+                command = "SELECT * from tree WHERE taxid ='" + str(5833)  + "'" # spark does NOT allow for ; at end of SQL !!
+                sqlResult = self.sqlContext.sql( command ) 
+                myList = sqlResult.collect()            # need .collect() to consolidate result into "Row"
+                print( myList )
+                print( myList, file = self.outFH  )
+
+
                 command = "SELECT taxid from acc_taxid WHERE acc_ver ='" + tax_id + "'" # spark does NOT allow for ; at end of SQL !!
                 sqlResult = self.sqlContext.sql( command ) 
                 myList = sqlResult.collect()            # need .collect() to consolidate result into "Row"
                 print( myList[0].taxid )
-                print( "  ** Inside OOP [end testQuery()]", file = self.outFH  )
+                print( "  ** Inside OOP [end testQuery()] Li119" )
+                print( "  ** Inside OOP [end testQuery()] Li119", file = self.outFH  )
                 return myList[0].taxid 
         #end testQuery()
-
-
-        ### this test method below no longer needed.
-        # sqlc is sqlContext
-        # lot of code for each fn, really pushing for OOP...
-        def testQueryWithSqlContext(sc,tax_id,limit=1):
-                ####   these are copied from parent/caller fn, as they are set after sqlcontext was created
-                sqlContext = SQLContext(sc)
-
-                lines = sc.textFile("nucl_gss.accession2taxid.head100")         # 0.550907 sec to count (*)
-                #lines = sc.textFile("nucl_gss.accession2taxid")         # 0.550907 sec to count (*)
-                parts = lines.map(lambda l: l.split("\t"))
-                acc_taxid = parts.map(lambda p: (p[0], p[1].strip(), p[2].strip(), p[3].strip() ))
-                schemaString = "acc acc_ver taxid gi"
-                fields = [StructField(field_name, StringType(), True) for field_name in schemaString.split()]
-                schema = StructType(fields)
-
-                schemaAccTaxid = sqlContext.createDataFrame(acc_taxid,schema)
-                schemaAccTaxid.registerTempTable("acc_taxid")
-                print( "  ** learning about the schema setup... [in child fn]"  )                       # local mode will see this in web log
-                schemaAccTaxid.printSchema()                            # not sure how to redirect this to file...
-
-
-                #sqlResult = sqlContext.sql( "SELECT count(*) from acc_taxid" ) # spark does NOT allow for ; at end of SQL !!
-                command = "SELECT taxid from acc_taxid WHERE acc_ver ='" + tax_id + "'" # spark does NOT allow for ; at end of SQL !!
-                sqlResult = sqlContext.sql( command ) 
-                myList = sqlResult.collect()            # need .collect() to consolidate result into "Row"
-                #print( myList[0].taxid )
-                return myList[0].taxid 
-        # end testQueryWithSqlContext()
 
 
         #pyphy.getTaxidByName("Bacteria",2)
@@ -145,46 +142,16 @@ class pyphy_spark_class :
                         return [unknown]
 
 
-
-        # don't have tree DB yet... so will continue to use SQLite (if possible, test TBA)
-        def obsoleting_getTaxidByName(name,limit=1):
-            conn = sqlite3.connect(db)
-            cursor = conn.cursor()
-            command = "SELECT taxid FROM tree WHERE name = '" + str(name) +  "';"
-            cursor.execute(command)
-            results = cursor.fetchall()
-            cursor.close()
-            temp = []
-            for result in results:
-                ##temp += result[0]
-                temp.append(result[0])
-            if len(temp) != 0:
-                temp.sort()
-                return temp[:limit]
-            else:
-                return [unknown]
-
         #pyphy.getRankByTaxid("2")
         def getRankByTaxid(self,taxid):
                 command = "SELECT rank FROM tree WHERE taxid = '" + str(taxid) +  "'"   # no ; at end!!
                 sqlResult = self.sqlContext.sql( command )
                 myList = sqlResult.collect()            # need .collect() to consolidate result into "Row"
                 #print( myList, file = self.outFH )
+                if len( myList ) == 0:          # added this cuz input db maybe a subset for test use
+                        return "unknown"        # rank is text string, not the -1 int value, thus quoted
                 return myList[0].rank
                 ##self.tree_schemaString = "taxid name parent rank"
-
-        def obsolete_getRankByTaxid(taxid):
-            conn = sqlite3.connect(db)
-            cursor = conn.cursor()
-            command = "SELECT rank FROM tree WHERE taxid = '" + str(taxid) +  "';"
-            cursor.execute(command)
-            result = cursor.fetchone()
-            cursor.close()   
-            if result:
-                #return result[0]
-                return str(result[0])
-            else:
-                return no_rank
 
         #pyphy.getRankByName("Bacteria")
         #def getRankByName(name):
@@ -210,20 +177,6 @@ class pyphy_spark_class :
                         return "Unknown"        # since expect name, returning string Unknown is correct...
                         #return "unknown"        # since expect name, returning string Unknown is correct...
 
-        def obsolete_getNameByTaxid(taxid):
-            conn = sqlite3.connect(db)
-            cursor = conn.cursor()
-            command = "SELECT name FROM tree WHERE taxid = '" + str(taxid) +  "';"
-            cursor.execute(command)
-            result = cursor.fetchone()
-            cursor.close()   
-            if result:
-                #return result[0]
-                return str(result[0])
-            else:
-                return "unknown"
-
-            
 
         # taxoHandle.getParentByTaxid("5833")
         # return 418107 ## correct! :)
@@ -241,23 +194,10 @@ class pyphy_spark_class :
                         #return result[0]
                         return str(result[0].parent)    ## result is good!
                 else:
-                        return unknown                  # this should return a taxid, which is unber, so use the unknown = -1
-                        #return "unknown"
+                        return unknown           # this should return a parent/taxid, which is munber, so use the unknown = -1
+                        #return "unknown"        # should not return a string.
                 ##self.tree_schemaString = "taxid name parent rank"
 
-        def obsolete_getParentByTaxid(taxid):
-            conn = sqlite3.connect(db)
-            cursor = conn.cursor()
-            command = "SELECT parent FROM tree WHERE taxid = '" + str(taxid) +  "';"
-            cursor.execute(command)
-            result = cursor.fetchone()
-            cursor.close()
-            if result:
-                #return result[0]
-                return str(result[0])
-            else:
-                return unknown
-            
 
         #pyphy.getParentByName("Flavobacteriia")
         #def getParentByName(name):
@@ -296,26 +236,12 @@ class pyphy_spark_class :
                 sqlResult = self.sqlContext.sql( command )
                 myList = sqlResult.collect()            # need .collect() to consolidate result into "Row"
                 #print( myList[0].taxid, file = self.outFH )
+                if len( myList ) == 0:          # added this cuz input db maybe a subset for test use
+                        return unknown
                 return myList[0].taxid
 
-        ## pre OOP definition, retire
-        def erase_getTaxidByAccVer(gi):
-            conn = sqlite3.connect(db)
-            cursor = conn.cursor()
-            ##command = "SELECT taxid FROM gi_taxid WHERE gi = '" + str(gi) +  "';"
-            command = "SELECT taxid FROM acc_taxid WHERE acc_ver = '" + str(gi) +  "';"
-            cursor.execute(command)
-            result = cursor.fetchone()
-            cursor.close()
-            if result:
-                #return result[0]
-                return str(result[0])
-            else:
-                return unknown
+           
             
-            
-            ## TODO continue here....  these are hopefully easy
-            ## kinda want to abstract SQL call, but really 3 lines of code...
         def getSonsByTaxid(self,taxid,limit=1):
                 command = "SELECT taxid from tree WHERE parent ='" + str(taxid) + "'" # spark does NOT allow for ; at end of SQL !!
                 sqlResult = self.sqlContext.sql( command )
@@ -332,40 +258,25 @@ class pyphy_spark_class :
                 else:
                         return [unknown]
 
-        def erase_getSonsByTaxid(taxid):
-            conn = sqlite3.connect(db)
-            cursor = conn.cursor()
-            command = "SELECT taxid FROM tree WHERE parent = '" + str(taxid) +  "';"
-            result = [row[0] for row in cursor.execute(command)]
-            cursor.close()
-            #return result
-            return str(result)
-
 
         def getSonsByName(self,name,limit=1):
                 return self.getSonsByTaxid( str(self.getTaxidByName(name)[0]),limit )
                 ##   don't know why didn't use self calling before
 
-        def erase_getSonsByName(name):
-            conn = sqlite3.connect(db)
-            cursor = conn.cursor()
-            command = "SELECT taxid FROM tree WHERE parent = '" + str(getTaxidByName(name)[0]) +  "';"
-            result = [row[0] for row in cursor.execute(command)]
-            cursor.close()
-            #return result
-            return str(result)
-
-
-
         ##def getGiByTaxid(taxid):
         ##  not sure if taxorpt ever called/used this fn...
         def getAccVerByTaxid(self,taxid):
-                command = "SELECT acc_ver from acc_taxid WHERE taxid ='" + str(taxid) + "'" # spark does NOT allow for ; at end of SQL !!
-                sqlResult = self.sqlContext.sql( command )
+            command = "SELECT acc_ver from acc_taxid WHERE taxid ='" + str(taxid) + "'" # spark does NOT allow for ; at end of SQL !!
+            sqlResult = self.sqlContext.sql( command )
+            try:
                 myList = sqlResult.collect()            # need .collect() to consolidate result into "Row"
                 #print( myList, file = self.outFH )
                 # this seems to return many elements, eg taxid = 5833 
                 return str(myList[0].acc_ver)
+            except Exception as e:      # python3 syntax
+                #print e
+                #print( format(e) )
+                print( format(e), file = self.outFH )
 
         def erase_getAccVerByTaxid(taxid):
             conn = sqlite3.connect(db)
@@ -383,6 +294,8 @@ class pyphy_spark_class :
                 print( format(e) )
 
 
+        ## Don't think taxorpt ever used these fn, 
+        ## so changed to OOP here, but not tested
 
         # multithreaded version of getSonsByName.  this one should be  a lot faster
         # http://dgg32.blogspot.com/2013/07/retrieve-all-sub-taxa-and-gi-from-ncbi.html?view=sidebar
@@ -402,7 +315,8 @@ class pyphy_spark_class :
                     #trying "Flavobacteriia" (6000+)
                     #error: can't start new thread
                     #it is more elegant here
-                    for s_s_id in getSonsByTaxid(sonId):
+                    ##for s_s_id in getSonsByTaxid(sonId):
+                    for s_s_id in self.getSonsByTaxid(sonId):
                         #print "s_s_id" + str(s_s_id)
                         out_queue.put(s_s_id)
                         in_queue.put(s_s_id)
@@ -442,8 +356,8 @@ class pyphy_spark_class :
             def work():
                 while True:
                     sonId = in_queue.get()		## missed in_
-                    ##out_queue.put(getGiByTaxid(sonId))
-                    out_queue.put(getAccVerByTaxid(sonId))
+                    ##out_queue.put(getAccVerByTaxid(sonId))
+                    out_queue.put(self.getAccVerByTaxid(sonId))
                     in_queue.task_done()
             for i in range(20):				## 20 threads for speed
                 t = Thread(target=work)
@@ -460,9 +374,6 @@ class pyphy_spark_class :
             return str(result)
         #end getAllAccVerByTaxid()
 
-# tin 2016.08.08
-# no other trivial fn that use the acc_tax table to convert to use sparksql.
-# the tree table maybe a possibility, but need to populate that table first.
 
 # end class
 
