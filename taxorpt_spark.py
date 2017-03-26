@@ -1,5 +1,4 @@
-### taxorpt-spark.py.bak1_workingTestFn ###
-
+### taxorpt-spark.py.bak2_oop+testFn ##
 ##  #!/usr/lib/spark/bin/pyspark
 
 
@@ -135,7 +134,106 @@ def main():
         run_taxo_reporter( args ) 
 # main()-end
 
-def main_with_spark():
+def main_with_spark_pyphy_oo():
+        #print( "hello OOP :) " )
+        outfile = "/home/hoti1/pub/taxorpt-spark.out"
+        outFH = open( outfile, 'w' )
+        print( "   *** hello OOP world :)  start of spark job, before declaring a SparkContext...", file = outFH )
+
+        ## ch 8 of Learning Spark
+        conf = SparkConf()
+        conf.set( "spark.app.name", "taxorpt_spark_conf_2016_0729_local")     # better off to leave conf as spark-submit params
+        conf.set( "spark.master", "local" )                                     # if use this, not in history server, but at least see some better output!
+        #conf.set( "spark.master", "yarn" )
+        #conf.set( "spark.submit.deployMode", "cluster" )
+        conf.set( "spark.eventLog.enabled", True )                             # maybe spark 1.5 don't support these, can't get em to work :(
+        conf.set( "spark.eventLog.dir", "file:///home/hoti1/pub" )             # will create app-id subdir in there.
+
+        ## http://stackoverflow.com/questions/24996302/setting-sparkcontext-for-pyspark
+        ## https://spark.apache.org/docs/1.5.0/configuration.html
+        #sc = SparkContext( 'local', 'taxorpt_pyspark_local_0727' )
+        sc = SparkContext( appName='taxorpt_spark_yarn_0810_wSQLite' )         # taxorpt w/ sqlite runs in yarn mode, get .html output, but UI don't capture stdout or stderr, hard to debug!
+        #sc = SparkContext( conf=conf )                                          # conf= is needed for spark 1.5
+        # for now need to run in local mode, don't know why can't get output from yarn mode
+        print( "   *** hello world sparkContext created" )
+        print( "   *** hello world sparkContext created", file = outFH )
+
+        taxoHandle = pyphy_spark.pyphy_spark_class(sc,outFH)
+
+        runTest = 1
+        if( runTest ):
+                print( "   *** taxorpt-spark running test..." )
+                print( "   *** taxorpt-spark running test...", file = outFH )
+
+                print( "   *** taxorpt-spark test: getSonsByTaxid...", file = outFH )
+                result = taxoHandle.getSonsByTaxid("33630",50)
+                print( result, file = outFH )
+                result = taxoHandle.getSonsByName("Plasmodium")
+                print( result, file = outFH )
+
+
+
+        runMoreTest = 0
+        if( runMoreTest ):
+                ## test a few more fn, from pyphy_tester.py
+
+                print( "   *** taxorpt-spark running MOre test..." )
+                print( "   *** taxorpt-spark running MOre test...", file = outFH )
+                result = taxoHandle.testQuery( "T02634.1" )
+                print( result, file = outFH )
+
+                print( "   *** taxorpt-spark test: AccVer...", file = outFH )
+                result = taxoHandle.getTaxidByAccVer("T02634.1")
+                print( result, file = outFH )
+                result = taxoHandle.getAccVerByTaxid("5833")
+                print( result, file = outFH )
+
+                ## both of these return list, hope that's what caller expected...
+                result = taxoHandle.getTaxidByName("Bacteria",1)
+                print( result, file = outFH )
+
+                result = taxoHandle.getTaxidByName("Bacteria",2)
+                print( result, file = outFH )
+
+                print( "   *** taxorpt-spark test: getRankByTaxid...", file = outFH )
+                result = taxoHandle.getRankByTaxid("5833")
+                print( result, file = outFH )
+
+                print( "   *** taxorpt-spark test: getNameByTaxid...", file = outFH )
+                result = taxoHandle.getNameByTaxid("5833")
+                print( result, file = outFH )
+                result = taxoHandle.getNameByTaxid("9999111555000")
+                print( result, file = outFH )
+
+                print( "   *** taxorpt-spark test: getParentByTaxid...", file = outFH )
+                result = taxoHandle.getParentByTaxid("5833")
+                print( result, file = outFH )
+
+                #### recursive lookup crosses data partion, so only work in cluster mode
+                #### local mode yield a network connectivity error
+                #print( "   *** taxorpt-spark test: 422676..." )
+                #result = taxoHandle.getPathByTaxid("5833")
+                result = taxoHandle.getPathByTaxid("422676")
+                print( result, file = outFH )
+                #print( "   *** taxorpt-spark test: 33630..." )
+                result = taxoHandle.getPathByTaxid("33630")
+                print( result, file = outFH )
+                #print( "   *** taxorpt-spark test: 5794..." )
+                result = taxoHandle.getPathByTaxid("5794")
+                print( result, file = outFH )
+        # end if runMoreTest section
+
+        sc.stop() 
+        print( "   *** good bye world !!" )
+        print( "   *** good bye world !!", file = outFH )
+        outFH.close()
+        return 0
+
+
+# end main_with_spark_pyphy_oo()
+
+
+def dont_use_anymore_main_with_spark():
         outfile = "/home/hoti1/pub/taxorpt-spark.out"
         outFH = open( outfile, 'w' )
         print( "   *** hello world.  start of spark job, before declaring a SparkContext...", file = outFH )
@@ -152,9 +250,9 @@ def main_with_spark():
 
         ## http://stackoverflow.com/questions/24996302/setting-sparkcontext-for-pyspark
         ## https://spark.apache.org/docs/1.5.0/configuration.html
-        #sc = SparkContext( 'local', 'taxorpt_pyspark_local_0727' )
-        #sc = SparkContext( appName='taxorpt_spark_yarn_0729_wSQLite' )         # taxorpt w/ sqlite runs in yarn mode, get .html output, but UI don't capture stdout or stderr, hard to debug!
-        sc = SparkContext( conf=conf )                                          # conf= is needed for spark 1.5
+        #sc = SparkContext( 'local', 'taxorpt_pyspark_local_mmdd_oldFn' )
+        sc = SparkContext( appName='taxorpt_spark_yarn_mmdd_oldFnNoLongerUsed_wSQLite' )         # taxorpt w/ sqlite runs in yarn mode, get .html output, but UI don't capture stdout or stderr, hard to debug!
+        #sc = SparkContext( conf=conf )                                          # conf= is needed for spark 1.5
         # for now need to run in local mode, don't know why can't get output from yarn mode
         print( "   *** hello world sparkContext created" )
         print( "   *** hello world sparkContext created", file = outFH )
@@ -220,5 +318,6 @@ def main_with_spark():
 
 ### end of all fn definition, begin of main program flow.
 #main()
-main_with_spark()
+#main_with_spark()
+main_with_spark_pyphy_oo()
 
